@@ -2067,7 +2067,7 @@ func (s *Server) Rollback(ctx context.Context, rollbackReq *application.Applicat
 			DryRun:       rollbackReq.GetDryRun(),
 			Prune:        rollbackReq.GetPrune(),
 			SyncOptions:  syncOptions,
-			SyncStrategy: &appv1.SyncStrategy{Apply: &appv1.SyncStrategyApply{}},
+			SyncStrategy: &appv1.SyncStrategy{},
 			Source:       &deploymentInfo.Source,
 			Sources:      deploymentInfo.Sources,
 		},
