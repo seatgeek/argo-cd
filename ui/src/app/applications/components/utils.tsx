@@ -6,7 +6,7 @@ import * as ReactForm from 'react-form';
 import {FormApi, Text} from 'react-form';
 import * as moment from 'moment';
 import {BehaviorSubject, combineLatest, concat, from, fromEvent, Observable, Observer, Subscription} from 'rxjs';
-import {debounceTime, map} from 'rxjs/operators';
+import {debounceTime, map, startWith} from 'rxjs/operators';
 import {AppContext, Context, ContextApis} from '../../shared/context';
 import {ResourceTreeNode} from './application-resource-tree/application-resource-tree';
 
@@ -566,96 +566,127 @@ function getActionItems(
     const isManaged = isTopLevelResource(resource, application);
     const childResources = findChildResources(resource, tree);
 
-    const items: MenuItem[] = [
-        ...((isManaged && [
-            {
-                title: 'Sync',
-                iconClassName: 'fa fa-fw fa-sync',
-                action: () => showDeploy(nodeKey(resource), null, apis)
-            }
-        ]) ||
-            []),
-        {
-            title: 'Delete',
-            iconClassName: 'fa fa-fw fa-times-circle',
-            action: async () => {
-                return deletePopup(apis, resource, application, isManaged, childResources, appChanged);
-            }
-        }
-    ];
+    const canShowLogs = isPod || findChildPod(resource, tree);
+    const canShowExec = isPod;
+
+    const items: ActionMenuItem[] = [];
 
     if (!isQuickStart) {
-        items.unshift({
+        items.push({
             title: 'Details',
             iconClassName: 'fa fa-fw fa-info-circle',
             action: () => apis.navigation.goto('.', {node: nodeKey(resource)})
         });
     }
 
-    const logsAction = services.accounts
-        .canI('logs', 'get', application.spec.project + '/' + application.metadata.name)
-        .then(async allowed => {
-            if (allowed && (isPod || findChildPod(resource, tree))) {
-                return [
-                    {
-                        title: 'Logs',
-                        iconClassName: 'fa fa-fw fa-align-left',
-                        action: () => apis.navigation.goto('.', {node: nodeKey(resource), tab: 'logs'}, {replace: true})
-                    } as MenuItem
-                ];
-            }
-            return [] as MenuItem[];
-        })
-        .catch(() => [] as MenuItem[]);
-
-    if (isQuickStart) {
-        return combineLatest(
-            from([items]), // this resolves immediately
-            concat([[] as MenuItem[]], logsAction) // this resolves at first to [] and then whatever the API returns
-        ).pipe(map(res => ([] as MenuItem[]).concat(...res)));
+    if (isManaged) {
+        items.push({
+            title: 'Sync',
+            iconClassName: 'fa fa-fw fa-sync',
+            action: () => showDeploy(nodeKey(resource), null, apis)
+        });
     }
 
-    const execAction = services.authService
-        .settings()
-        .then(async settings => {
-            const execAllowed = settings.execEnabled && (await services.accounts.canI('exec', 'create', application.spec.project + '/' + application.metadata.name));
-            if (isPod && execAllowed) {
-                return [
-                    {
-                        title: 'Exec',
-                        iconClassName: 'fa fa-fw fa-terminal',
-                        action: async () => apis.navigation.goto('.', {node: nodeKey(resource), tab: 'exec'}, {replace: true})
-                    } as MenuItem
-                ];
+    if (canShowLogs) {
+        items.push({
+            title: 'Logs',
+            iconClassName: 'fa fa-fw fa-align-left',
+            action: async () => {
+                const resourceName = application.spec.project + '/' + application.metadata.name;
+                try {
+                    const allowed = await services.accounts.canI('logs', 'get', resourceName);
+                    if (allowed) {
+                        apis.navigation.goto('.', {node: nodeKey(resource), tab: 'logs'}, {replace: true});
+                    } else {
+                        apis.notifications.show({
+                            content: <ErrorNotification title='Permission Denied' e={{message: `You do not have permission to get logs for resource ${resource.kind}/${resource.name}`}} />,
+                            type: NotificationType.Error
+                        });
+                    }
+                } catch (e) {
+                    apis.notifications.show({
+                        content: <ErrorNotification title='Failed to check permissions' e={e} />,
+                        type: NotificationType.Error
+                    });
+                }
             }
-            return [] as MenuItem[];
-        })
-        .catch(() => [] as MenuItem[]);
+        });
+    }
 
-    const resourceActions = getResourceActionsMenuItems(resource, application.metadata, apis);
+    if (canShowExec) {
+        items.push({
+            title: 'Exec',
+            iconClassName: 'fa fa-fw fa-terminal',
+            action: async () => {
+                const resourceName = application.spec.project + '/' + application.metadata.name;
+                 try {
+                    const settings = await services.authService.settings();
+                    if (!settings.execEnabled) {
+                         apis.notifications.show({
+                            content: <ErrorNotification title='Exec Disabled' e={{message: 'Exec is not enabled in Argo CD settings.'}} />,
+                            type: NotificationType.Error
+                        });
+                        return;
+                    }
+                    
+                    const allowed = await services.accounts.canI('exec', 'create', resourceName);
+                    if (allowed) {
+                        apis.navigation.goto('.', {node: nodeKey(resource), tab: 'exec'}, {replace: true});
+                    } else {
+                         apis.notifications.show({
+                            content: <ErrorNotification title='Permission Denied' e={{message: `You do not have permission to exec into resource ${resource.kind}/${resource.name}`}} />,
+                            type: NotificationType.Error
+                        });
+                    }
+                } catch (e) {
+                    apis.notifications.show({
+                        content: <ErrorNotification title='Failed to check permissions' e={e} />,
+                        type: NotificationType.Error
+                    });
+                }
+            }
+        });
+    }
 
-    const links = services.applications
-        .getResourceLinks(application.metadata.name, application.metadata.namespace, resource)
-        .then(data => {
-            return (data.items || []).map(
-                link =>
-                    ({
-                        title: link.title,
-                        iconClassName: `fa fa-fw ${link.iconClass ? link.iconClass : 'fa-external-link'}`,
-                        action: () => window.open(link.url, '_blank'),
-                        tooltip: link.description
-                    }) as MenuItem
-            );
-        })
-        .catch(() => [] as MenuItem[]);
+    items.push({
+        title: 'Delete',
+        iconClassName: 'fa fa-fw fa-times-circle',
+        action: async () => {
+            return deletePopup(apis, resource, application, isManaged, childResources, appChanged);
+        }
+    });
 
-    return combineLatest(
-        from([items]), // this resolves immediately
-        concat([[] as MenuItem[]], logsAction), // this resolves at first to [] and then whatever the API returns
-        concat([[] as MenuItem[]], resourceActions), // this resolves at first to [] and then whatever the API returns
-        concat([[] as MenuItem[]], execAction), // this resolves at first to [] and then whatever the API returns
-        concat([[] as MenuItem[]], links) // this resolves at first to [] and then whatever the API returns
-    ).pipe(map(res => ([] as MenuItem[]).concat(...res)));
+    let resourceActionsObservable: Observable<ActionMenuItem[]> = from([[]]);
+    let linksObservable: Observable<ActionMenuItem[]> = from([[]]);
+
+    if (!isQuickStart) {
+        const resourceActionsPromise = getResourceActionsMenuItems(resource, application.metadata, apis);
+        const linksPromise = services.applications
+            .getResourceLinks(application.metadata.name, application.metadata.namespace, resource)
+            .then(data => {
+                return (data.items || []).map(
+                    link =>
+                        ({
+                            title: link.title,
+                            iconClassName: `fa fa-fw ${link.iconClass ? link.iconClass : 'fa-external-link'}`,
+                            action: () => window.open(link.url, '_blank'),
+                            tooltip: link.description
+                        }) as ActionMenuItem
+                );
+            })
+            .catch(() => [] as ActionMenuItem[]);
+
+        resourceActionsObservable = from(resourceActionsPromise).pipe(startWith([]));
+        linksObservable = from(linksPromise).pipe(startWith([]));
+    }
+
+    return combineLatest([
+        from([items]),
+        resourceActionsObservable,
+        linksObservable
+    ]).pipe(
+        map(results => ([] as ActionMenuItem[]).concat(...results))
+    );
 }
 
 export function renderResourceMenu(
