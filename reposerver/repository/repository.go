@@ -2642,7 +2642,7 @@ func (s *Service) GetGitFiles(_ context.Context, request *apiclient.GitFilesRequ
 
 	gitClient, revision, err := s.newClientResolveRevision(repo, revision, git.WithCache(s.cache, !noRevisionCache))
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "unable to resolve git revision %s: %v", revision, err)
+		return nil, status.Errorf(codes.Internal, "unable to resolve git revision %s in repo %s: %v", revision, repo, err)
 	}
 
 	if err := verifyCommitSignature(request.VerifyCommit, gitClient, revision, repo); err != nil {
@@ -2724,7 +2724,7 @@ func (s *Service) GetGitDirectories(_ context.Context, request *apiclient.GitDir
 
 	gitClient, revision, err := s.newClientResolveRevision(repo, revision, git.WithCache(s.cache, !noRevisionCache))
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "unable to resolve git revision %s: %v", revision, err)
+		return nil, status.Errorf(codes.Internal, "unable to resolve git revision %s in repo %s: %v", revision, repo, err)
 	}
 
 	if err := verifyCommitSignature(request.VerifyCommit, gitClient, revision, repo); err != nil {
@@ -2816,13 +2816,13 @@ func (s *Service) UpdateRevisionForPaths(_ context.Context, request *apiclient.U
 	gitClientOpts := git.WithCache(s.cache, !request.NoRevisionCache)
 	gitClient, revision, err := s.newClientResolveRevision(repo, revision, gitClientOpts)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "unable to resolve git revision %s: %v", revision, err)
+		return nil, status.Errorf(codes.Internal, "unable to resolve git revision %s in repo %s: %v", revision, repo, err)
 	}
 
 	syncedRevision, err = gitClient.LsRemote(syncedRevision)
 	if err != nil {
 		s.metricsServer.IncGitLsRemoteFail(gitClient.Root(), revision)
-		return nil, status.Errorf(codes.Internal, "unable to resolve git revision %s: %v", revision, err)
+		return nil, status.Errorf(codes.Internal, "unable to resolve git revision %s in repo %s: %v", revision, repo, err)
 	}
 
 	// No need to compare if it is the same revision
