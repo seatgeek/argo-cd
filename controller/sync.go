@@ -12,8 +12,6 @@ import (
 
 	"k8s.io/apimachinery/pkg/util/strategicpatch"
 
-	cdcommon "github.com/argoproj/argo-cd/v3/common"
-
 	gitopsDiff "github.com/argoproj/gitops-engine/pkg/diff"
 	"github.com/argoproj/gitops-engine/pkg/sync"
 	"github.com/argoproj/gitops-engine/pkg/sync/common"
@@ -373,7 +371,7 @@ func (m *appStateManager) SyncAppState(app *v1alpha1.Application, state *v1alpha
 		sync.WithPrunePropagationPolicy(&prunePropagationPolicy),
 		sync.WithReplace(syncOp.SyncOptions.HasOption(common.SyncOptionReplace)),
 		sync.WithServerSideApply(syncOp.SyncOptions.HasOption(common.SyncOptionServerSideApply)),
-		sync.WithServerSideApplyManager(cdcommon.ArgoCDSSAManager),
+		sync.WithServerSideApplyManager(app.GetName() + "-" + app.GetNamespace()),
 		sync.WithPruneConfirmed(app.IsDeletionConfirmed(state.StartedAt.Time)),
 	}
 
